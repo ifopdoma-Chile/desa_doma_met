@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌬️</text></svg>" type="image/svg+xml">
+    <title>DOMA Met</title>
+    <style>
+        html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; }
+        #content { position: absolute; width: 100%; height: 100%; top: 0; left: 0; }
+        .header-container {
+            position: absolute; top: 10px; left: 50px; max-width: 200px; width: auto;
+            background-color: rgba(255, 255, 255, 0.9); padding: 10px; border-radius: 8px;
+            box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.2); z-index: 1000; text-align: left;
+        }
+        .header-container h3 { font-size: 14px; margin: 5px 0; }
+        .sapo-legend-container {
+            position: fixed; top: 5px; right: 20px; z-index: 1000;
+            min-width: 200px; max-width: 280px;
+        }
+        .leaflet-control-layers { margin-top: 42px !important; }
+        .sapo-legend-toggle {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 6px 14px;
+            background: linear-gradient(110deg, #0a2a4a 0%, #0d4f8c 55%, #1565c0 100%);
+            color: #fff; border: 1px solid rgba(255,255,255,0.18); border-radius: 8px;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            font-size: 12px; font-weight: 600; letter-spacing: 0.02em;
+            cursor: pointer;
+            box-shadow: 0 4px 14px rgba(10,42,74,0.30), 0 1px 3px rgba(10,42,74,0.18);
+            transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+            user-select: none; width: 100%; justify-content: space-between;
+        }
+        .sapo-legend-toggle:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 18px rgba(10,42,74,0.36), 0 2px 5px rgba(10,42,74,0.22);
+        }
+        .sapo-legend-toggle svg.arrow {
+            width: 14px; height: 14px;
+            transition: transform 0.30s cubic-bezier(0.4,0,0.2,1);
+            flex-shrink: 0;
+        }
+        .sapo-legend-toggle.is-collapsed svg.arrow { transform: rotate(180deg); }
+        .sapo-legend-dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: #00b4d8;
+            box-shadow: 0 0 6px rgba(0,180,216,0.7); flex-shrink: 0;
+        }
+        .sapo-legend-body {
+            margin-top: 4px;
+            background: rgba(255,255,255,0.95);
+            backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+            border: 1px solid #e9ecef; border-radius: 8px; padding: 10px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+            transition: max-height 0.30s ease, opacity 0.25s ease, margin 0.25s ease, padding 0.25s ease;
+            max-height: 600px; opacity: 1; overflow: hidden;
+        }
+        .sapo-legend-body.is-collapsed {
+            max-height: 0 !important; opacity: 0; margin: 0; padding: 0 10px; border: none;
+        }
+        .sapo-legend-body.sapo-has-styled-layers {
+            padding: 6px !important; max-height: 500px !important; overflow-y: auto !important;
+        }
+        .sapo-layer-item {
+            display: flex; align-items: center; gap: 8px; padding: 5px 8px;
+            cursor: pointer; transition: background 0.15s, opacity 0.25s;
+            border-radius: 6px; min-height: 28px; user-select: none;
+        }
+        .sapo-layer-item:hover { background: #e8f0fe; }
+        .sapo-layer-item.hidden { opacity: 0.35; }
+        .sapo-layer-item.hidden .sapo-layer-name { text-decoration: line-through; }
+        .sapo-layer-dot {
+            flex-shrink: 0; width: 10px; height: 10px; border-radius: 50%;
+            border: 2px solid rgba(255,255,255,0.9);
+            box-shadow: 0 0 0 1px rgba(0,0,0,0.12);
+            transition: transform 0.2s, opacity 0.25s;
+        }
+        .sapo-layer-item:hover .sapo-layer-dot { transform: scale(1.3); }
+        .sapo-layer-item.hidden .sapo-layer-dot { transform: scale(0.7); opacity: 0.35; }
+        .sapo-layer-name {
+            flex: 1; font-size: 11.5px; font-weight: 500; color: #1a1a2e;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .sapo-layer-item.hidden .sapo-layer-name { color: #9e9e9e; }
+        .sapo-layer-footer {
+            padding: 4px 8px; font-size: 10px; color: #9e9e9e;
+            border-top: 1px solid #e9ecef; text-align: center; margin-top: 2px;
+        }
+        .leaflet-control-layers.sapo-lc-hidden { display: none !important; }
+        .sapo-dot-0 { border-color: #0a2a4a; box-shadow: 0 0 0 1px #0a2a4a; }
+        .sapo-dot-1 { border-color: #0d4f8c; box-shadow: 0 0 0 1px #0d4f8c; }
+        .sapo-dot-2 { border-color: #1565c0; box-shadow: 0 0 0 1px #1565c0; }
+        .sapo-dot-3 { border-color: #3a7abd; box-shadow: 0 0 0 1px #3a7abd; }
+        .sapo-dot-4 { border-color: #5a8aaa; box-shadow: 0 0 0 1px #5a8aaa; }
+        .sapo-dot-5 { border-color: #7a9a9a; box-shadow: 0 0 0 1px #7a9a9a; }
+        .sapo-dot-6 { border-color: #9aa8a8; box-shadow: 0 0 0 1px #9aa8a8; }
+        .sapo-dot-7 { border-color: #b0b0b0; box-shadow: 0 0 0 1px #b0b0b0; }
+        .legend-colorbar {
+            display: block; max-width: 100%; height: auto; margin: 8px auto 0;
+        }
+    </style>
+</head>
+<body>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js"></script>
+
+    <div id="content">
+        <div class="header-container">
+            <div class="row align-items-center">
+                <div class="col-auto">
+                    <span style="font-size: 36px;">🌬️</span>
+                </div>
+                <div class="col">
+                    <h3 style="color: darkblue; margin: 0;">DOMA Met</h3>
+                    <div style="height:1px; background-color: rgba(0,0,0,.15); margin: 2px 0;"></div>
+                    <div style="font-size: 10px; color: #6c757d;">Monitoreo Meteorológico</div>
+                </div>
+            </div>
+        </div>
+
+        {% block content %}{% endblock %}
+    </div>
+
+    <script>
+    (function() {
+        var STORAGE_KEY_PREFIX = 'domamet.legend.collapsed.';
+        var SAPO_COLORS = ['#e74c3c','#3498db','#2ecc71','#9b59b6','#f39c12','#1abc9c','#e67e22','#2c3e50'];
+
+        function getLeafletMap() {
+            return Object.values(window).find(function(v) { return v instanceof L.Map; });
+        }
+        function invalidateMap() {
+            var m = getLeafletMap();
+            if (m) try { m.invalidateSize(); } catch(e) {}
+        }
+        function getLayerLabels(lc) {
+            var overlays = lc.querySelector('.leaflet-control-layers-overlays');
+            if (overlays) {
+                var ls = overlays.querySelectorAll('label');
+                if (ls.length > 0) return ls;
+            }
+            var groups = lc.querySelectorAll('.leaflet-control-layers-group');
+            if (groups.length > 0) {
+                var allLabels = [];
+                groups.forEach(function(g) {
+                    var ls = g.querySelectorAll('label');
+                    ls.forEach(function(l) { allLabels.push(l); });
+                });
+                if (allLabels.length > 0) return allLabels;
+            }
+            return lc.querySelectorAll('label');
+        }
+        function escapeHtml(text) {
+            var d = document.createElement('div');
+            d.textContent = text;
+            return d.innerHTML;
+        }
+        function stylizeLayerControl(body) {
+            var lc = document.querySelector('.leaflet-control-layers');
+            if (!lc) return false;
+            var labels = getLayerLabels(lc);
+            if (!labels || labels.length === 0) return false;
+            lc.classList.add('sapo-lc-hidden');
+            var html = '';
+            var count = 0;
+            labels.forEach(function(label) {
+                var span = label.querySelector('span');
+                if (!span) return;
+                var name = span.textContent.trim();
+                if (!name || name === '—' || name === '-') return;
+                var input = label.querySelector('input[type="checkbox"], input[type="radio"]');
+                var checked = input ? input.checked : true;
+                var ci = count % SAPO_COLORS.length;
+                var hiddenClass = checked ? '' : ' hidden';
+                    html += '<div class="sapo-layer-item' + hiddenClass + '" data-layer-idx="' + count + '">';
+                    html += '<span class="sapo-layer-dot sapo-dot-' + ci + '"></span>';
+                html += '<span class="sapo-layer-name">' + escapeHtml(name) + '</span>';
+                html += '</div>';
+                count++;
+            });
+            if (count > 0) {
+                html += '<div class="sapo-layer-footer">' + count + ' capa' + (count > 1 ? 's' : '') + '</div>';
+            }
+            body.innerHTML = html;
+            body.classList.add('sapo-has-styled-layers');
+            var items = body.querySelectorAll('.sapo-layer-item');
+            items.forEach(function(item) {
+                item.addEventListener('click', function(e) {
+                    var idx = parseInt(this.dataset.layerIdx);
+                    var lc = document.querySelector('.leaflet-control-layers');
+                    var labels = getLayerLabels(lc);
+                    if (!labels || idx >= labels.length) return;
+                    var label = labels[idx];
+                    var input = label.querySelector('input[type="checkbox"], input[type="radio"]');
+                    if (!input) return;
+                    input.click();
+                    if (input.checked) {
+                        this.classList.remove('hidden');
+                    } else {
+                        this.classList.add('hidden');
+                    }
+                });
+            });
+            return true;
+        }
+        function initLegendToggle(containerId) {
+            var container = document.getElementById(containerId);
+            if (!container) return;
+            var toggle = container.querySelector('.sapo-legend-toggle');
+            var body = container.querySelector('.sapo-legend-body');
+            if (!toggle) return;
+            var storageKey = STORAGE_KEY_PREFIX + containerId;
+            var isCollapsed = false;
+            try { isCollapsed = window.localStorage.getItem(storageKey) === '1'; } catch(e) {}
+            if (body && body.children.length === 0) {
+                var styled = stylizeLayerControl(body);
+                if (!styled) {
+                    var retries = 0;
+                    var retryInterval = setInterval(function() {
+                        retries++;
+                        if (stylizeLayerControl(body) || retries > 50) {
+                            clearInterval(retryInterval);
+                            if (retries <= 50) { applyState(isCollapsed); }
+                        }
+                    }, 200);
+                }
+            }
+            function applyState(collapsed) {
+                if (body && body.children.length > 0) {
+                    if (collapsed) { body.classList.add('is-collapsed'); }
+                    else { body.classList.remove('is-collapsed'); }
+                } else {
+                    var lc = document.querySelector('.leaflet-control-layers');
+                    if (lc) {
+                        if (collapsed) lc.classList.add('sapo-lc-hidden');
+                        else lc.classList.remove('sapo-lc-hidden');
+                    }
+                }
+                if (collapsed) {
+                    toggle.classList.add('is-collapsed');
+                    toggle.setAttribute('title', 'Mostrar capas');
+                } else {
+                    toggle.classList.remove('is-collapsed');
+                    toggle.setAttribute('title', 'Ocultar capas');
+                }
+            }
+            toggle.addEventListener('click', function(e) {
+                e.preventDefault(); e.stopPropagation();
+                isCollapsed = !isCollapsed;
+                applyState(isCollapsed);
+                try { window.localStorage.setItem(storageKey, isCollapsed ? '1' : '0'); } catch(e) {}
+                setTimeout(invalidateMap, 350);
+            });
+            applyState(isCollapsed);
+            if (isCollapsed && (!body || body.children.length === 0)) {
+                var tries = 0;
+                var poll = setInterval(function() {
+                    var lc = document.querySelector('.leaflet-control-layers');
+                    if (lc) { lc.classList.add('sapo-lc-hidden'); clearInterval(poll); }
+                    tries++;
+                    if (tries > 50) clearInterval(poll);
+                }, 100);
+            }
+        }
+        function initAllLegends() {
+            var containers = document.querySelectorAll('.sapo-legend-container');
+            for (var i = 0; i < containers.length; i++) {
+                initLegendToggle(containers[i].id);
+            }
+        }
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initAllLegends);
+        } else {
+            initAllLegends();
+        }
+    })();
+    </script>
+</body>
+</html>

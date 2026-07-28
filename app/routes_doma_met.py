@@ -1,0 +1,539 @@
+from flask import render_template, session, current_app, jsonify
+import os
+import folium
+from folium.plugins import MousePosition
+from folium import plugins
+import numpy as np
+import json
+from io import BytesIO
+import rasterio
+from datetime import datetime
+import requests
+import xml.etree.ElementTree as ET
+from requests.auth import HTTPBasicAuth
+from app.routes import main, GEOSERVER_URL, GEOSERVER_USER, GEOSERVER_PASS, logger
+import pytz
+
+maxzoom = 12
+minzoom = 3
+chile_tz = pytz.timezone('America/Santiago')
+GEOSERVER_WMS_URL = f"{GEOSERVER_URL}/Ifop_Sapo/wms"
+
+def get_wms_date(layer_name="presatm2"):
+    try:
+        url = f'{GEOSERVER_URL}/Ifop_Sapo/wms?service=WMS&request=GetCapabilities'
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        root = ET.fromstring(r.content)
+        ns = {'wms': 'http://www.opengis.net/wms'}
+        for layer in root.findall(".//wms:Layer", ns):
+            name = layer.find("wms:Name", ns)
+            if name is not None and name.text == layer_name:
+                dim = layer.find("wms:Dimension", ns)
+                if dim is not None:
+                    raw = dim.text.strip()
+                    dt = datetime.strptime(raw, "%Y-%m-%dT%H:%M:%S.%fZ")
+                    return dt.strftime("%d/%m/%Y")
+    except Exception as e:
+        logger.error(f"Error obteniendo fecha WMS {layer_name}: {e}")
+    return "Desconocida"
+
+def get_nubes_date():
+    chile_tz = pytz.timezone('America/Santiago')
+    url = f"{GEOSERVER_URL}/Ifop_Sapo/wms?service=WMS&request=GetCapabilities"
+    try:
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        root = ET.fromstring(r.content)
+        ns = {'wms': 'http://www.opengis.net/wms'}
+        for layer in root.findall(".//wms:Layer", ns):
+            name = layer.find("wms:Name", ns)
+            if name is not None and name.text in ["Nubes_v2", "Ifop_Sapo:Nubes_v2"]:
+                dim = layer.find("wms:Dimension", ns)
+                if dim is not None and dim.attrib.get("name") == "time":
+                    raw = dim.text.strip()
+                    if "," in raw:
+                        last_time = raw.split(",")[-1].strip()
+                    elif "/" in raw:
+                        parts = raw.split("/")
+                        last_time = parts[1].strip() if len(parts) >= 2 else parts[0].strip()
+                    else:
+                        last_time = raw
+                    try:
+                        dt_utc = datetime.fromisoformat(last_time.replace("Z", ""))
+                        if dt_utc.year > 3000 or dt_utc.year < 2000:
+                            return "Sin fecha"
+                        dt_utc = dt_utc.replace(tzinfo=pytz.utc)
+                        dt_chile = dt_utc.astimezone(chile_tz)
+                        return dt_chile.strftime("%d/%m/%Y")
+                    except:
+                        return last_time
+        return "Sin fecha"
+    except Exception as e:
+        logger.error(f"Error obteniendo fecha Nubes: {e}")
+        return "Sin fecha"
+
+
+def fetch_wind_from_wcs():
+    try:
+        app_static = os.path.join(current_app.root_path, 'static')
+        os.makedirs(app_static, exist_ok=True)
+
+        json_path = os.path.join(app_static, 'wind_data_latest.json')
+        metadata_path = os.path.join(app_static, 'wind_metadata.json')
+
+        auth = HTTPBasicAuth(GEOSERVER_USER, GEOSERVER_PASS)
+        wcs_url = f"{GEOSERVER_URL}/Ifop_Sapo/wcs"
+
+        latest_time = None
+        try:
+            caps_params = {'service': 'WMS', 'request': 'GetCapabilities', 'version': '1.3.0'}
+            caps_r = requests.get(GEOSERVER_WMS_URL, params=caps_params, auth=auth, timeout=30, verify=False)
+            if caps_r.status_code == 200:
+                import re
+                for layer in ['u10', 'v10']:
+                    pattern = rf'<Layer>.*?<Name>{layer}</Name>.*?<Dimension[^>]*name="time"[^>]*>(.*?)</Dimension>'
+                    match = re.search(pattern, caps_r.text, re.DOTALL)
+                    if match:
+                        dim_text = match.group(1).strip()
+                        times = [t.strip() for t in dim_text.split(',') if t.strip()]
+                        default_match = re.search(r'default="([^"]+)"', match.group())
+                        if times:
+                            latest_time = times[-1]
+                        elif default_match:
+                            latest_time = default_match.group(1)
+                        break
+        except Exception:
+            pass
+
+        def make_wcs_params(coverage_id):
+            return [
+                ("service", "WCS"),
+                ("version", "2.0.1"),
+                ("request", "GetCoverage"),
+                ("coverageId", coverage_id),
+                ("format", "image/tiff"),
+                ("subset", "Long(-180,180)"),
+                ("subset", "Lat(-90,90)"),
+            ]
+
+        resp_u = requests.get(
+            wcs_url, params=make_wcs_params("Ifop_Sapo__u10"),
+            auth=auth, timeout=120, verify=False
+        )
+        resp_u.raise_for_status()
+
+        resp_v = requests.get(
+            wcs_url, params=make_wcs_params("Ifop_Sapo__v10"),
+            auth=auth, timeout=120, verify=False
+        )
+        resp_v.raise_for_status()
+
+        with rasterio.open(BytesIO(resp_u.content)) as src_u:
+            u = src_u.read(1).astype(np.float64)
+            transform_u = src_u.transform
+
+        with rasterio.open(BytesIO(resp_v.content)) as src_v:
+            v = src_v.read(1).astype(np.float64)
+
+        u = np.nan_to_num(u, nan=0.0)
+        v = np.nan_to_num(v, nan=0.0)
+
+        if u.shape != v.shape:
+            raise ValueError(f"Dimensiones inconsistentes: u={u.shape}, v={v.shape}")
+
+        ny, nx = u.shape
+        dx = abs(transform_u.a)
+        dy = abs(transform_u.e)
+        lo1 = transform_u.c
+        la1 = transform_u.f
+        lo2 = lo1 + nx * dx
+        la2 = la1 - ny * dy
+        la1 = round(la1, 2)
+        lo2 = round(lo2, 2)
+        la2 = round(la2, 2)
+        dx = round(dx, 4)
+        dy = round(dy, 4)
+
+        if latest_time:
+            ref_dt = datetime.strptime(latest_time.replace('Z', '').split('.')[0], "%Y-%m-%dT%H:%M:%S")
+            ref_time_iso = ref_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+        else:
+            ref_time_iso = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        header_base = {
+            "parameterCategory": 2, "nx": nx, "ny": ny,
+            "lo1": lo1, "la1": la1, "lo2": lo2, "la2": la2,
+            "dx": dx, "dy": dy,
+            "refTime": ref_time_iso, "forecastTime": 0
+        }
+
+        u_component = {
+            "header": {**header_base, "parameterNumber": 2},
+            "data": np.round(u, 3).flatten().tolist()
+        }
+
+        v_component = {
+            "header": {**header_base, "parameterNumber": 3},
+            "data": np.round(v, 3).flatten().tolist()
+        }
+
+        with open(json_path, "w") as f:
+            json.dump([u_component, v_component], f, separators=(',', ':'))
+
+        if latest_time:
+            try:
+                ref_dt_utc = datetime.strptime(latest_time.replace('Z', '').split('.')[0], "%Y-%m-%dT%H:%M:%S")
+                ref_dt_utc = ref_dt_utc.replace(tzinfo=pytz.utc)
+                fecha_local = ref_dt_utc.astimezone(chile_tz)
+                fecha_dato_str = fecha_local.strftime("%d/%m/%Y %H:%M")
+            except Exception:
+                fecha_dato_str = datetime.now(pytz.utc).astimezone(chile_tz).strftime("%d/%m/%Y %H:%M")
+        else:
+            fecha_dato_str = datetime.now(pytz.utc).astimezone(chile_tz).strftime("%d/%m/%Y %H:%M")
+
+        metadata = {
+            "fuente": "WCS GeoServer",
+            "fecha_dato": fecha_dato_str,
+            "fecha_proceso": datetime.now().isoformat(),
+            "geoserver_time": latest_time or "desconocida",
+            "shape": f"{ny}x{nx}"
+        }
+        with open(metadata_path, "w") as f:
+            json.dump(metadata, f)
+
+        logger.info(f"Viento desde WCS OK: {nx}x{ny}, fecha={latest_time}")
+        return metadata, True
+
+    except Exception as e:
+        logger.error(f"Error obteniendo viento desde WCS: {e}")
+        return None, False
+
+
+def fetch_wave_data():
+    try:
+        app_static = os.path.join(current_app.root_path, 'static')
+        json_path = os.path.join(app_static, 'wave_data_latest.json')
+        metadata_path = os.path.join(app_static, 'wave_metadata.json')
+
+        if not os.path.exists(json_path):
+            logger.error("No existe wave_data_latest.json")
+            return None, False
+
+        with open(json_path) as f:
+            data = json.load(f)
+
+        if not data or len(data) < 2:
+            return None, False
+
+        h = data[0].get('header', {})
+        ref_time = h.get('refTime', '')
+        nx, ny = h.get('nx', 0), h.get('ny', 0)
+
+        if ref_time:
+            try:
+                ref_dt = datetime.strptime(ref_time.replace('Z', '').split('.')[0].split('T')[0], "%Y-%m-%d")
+                fecha_dato_str = ref_dt.strftime("%d/%m/%Y")
+            except:
+                fecha_dato_str = ref_time
+        else:
+            fecha_dato_str = datetime.utcnow().strftime("%d/%m/%Y")
+
+        metadata = {
+            "fuente": "wave_data_latest.json",
+            "fecha_dato": fecha_dato_str,
+            "fecha_proceso": datetime.now().isoformat(),
+            "shape": f"{ny}x{nx}"
+        }
+        with open(metadata_path, "w") as f:
+            json.dump(metadata, f)
+
+        logger.info(f"Olas desde JSON OK: {nx}x{ny}, fecha={fecha_dato_str}")
+        return metadata, True
+
+    except Exception as e:
+        logger.error(f"Error obteniendo olas: {e}")
+        return None, False
+
+
+@main.route('/')
+def doma_met():
+    center = session.get('center', [-30, -72])
+    zoom = session.get('zoom', 4)
+
+    pressure_date = get_wms_date("presatm2")
+    nubes_date = get_nubes_date()
+    precip_date = get_wms_date("Precip_GFS_v1")
+    wind_metadata, wind_available = fetch_wind_from_wcs()
+    wave_metadata, wave_available = fetch_wave_data()
+
+    m = folium.Map(
+        location=center,
+        zoom_start=zoom,
+        tiles=None,
+        minZoom=minzoom,
+        maxZoom=maxzoom,
+        zoomDelta=1,
+        zoomSnap=1,
+        wheelPxPerZoomLevel=250,
+    )
+
+    folium.TileLayer(
+        tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+        attr='Esri',
+        name='Base',
+        control=False,
+    ).add_to(m)
+
+    formatter = """
+            function(lat, lng) {
+                var virtual_lng = lng;
+                if (lng > 0 && map.getCenter().lng < -100) { virtual_lng = lng - 360; }
+                return `Lat: ${lat.toFixed(5)}, Lng: ${virtual_lng.toFixed(5)}`;
+            }
+            """
+    MousePosition(
+        position="bottomleft",
+        separator=" | ",
+        empty_string="",
+        lng_first=False,
+        num_digits=4,
+        prefix="Coordenadas:",
+        formatter=formatter
+    ).add_to(m)
+
+    plugins.LocateControl(position='bottomleft').add_to(m)
+
+    folium.WmsTileLayer(
+        url=GEOSERVER_WMS_URL,
+        layers='Ifop_Sapo:presatm2',
+        name=f'Presión Atmosférica ({pressure_date})',
+        fmt='image/png',
+        transparent=True,
+        overlay=True,
+        opacity=0.5,
+        control=True,
+        tileSize=256,
+        no_wrap=True,
+    ).add_to(m)
+
+    folium.WmsTileLayer(
+        url=GEOSERVER_WMS_URL,
+        layers='Ifop_Sapo:presatm2',
+        styles='6_presatm_iso',
+        name='Isolíneas Presión',
+        fmt='image/png',
+        transparent=True,
+        overlay=True,
+        control=True,
+        opacity=1.0,
+        tileSize=256,
+        no_wrap=True,
+    ).add_to(m)
+
+    folium.WmsTileLayer(
+        url=GEOSERVER_WMS_URL,
+        layers='Ifop_Sapo:Nubes_v2',
+        styles='9_Nubes',
+        name=f'Nubes ({nubes_date})',
+        fmt='image/png',
+        transparent=True,
+        overlay=True,
+        control=True,
+        opacity=0.95,
+        tileSize=256,
+        no_wrap=True,
+    ).add_to(m)
+
+    folium.WmsTileLayer(
+        url=GEOSERVER_WMS_URL,
+        layers='Ifop_Sapo:Precip_GFS_v1',
+        styles='Precip_heatmap',
+        name=f'Precipitación ({precip_date})',
+        fmt='image/png',
+        transparent=True,
+        overlay=True,
+        control=True,
+        opacity=0.85,
+        tileSize=256,
+        no_wrap=True,
+    ).add_to(m)
+
+    wind_date = wind_metadata["fecha_dato"] if wind_metadata else "Sin fecha"
+    wind_date = wind_date.split(" ")[0] if wind_date != "Sin fecha" else "Sin fecha"
+    wave_date = wave_metadata["fecha_dato"] if wave_metadata else "Sin fecha"
+    wave_date = wave_date.split(" ")[0] if wave_date != "Sin fecha" else "Sin fecha"
+
+    map_setup_script = f"""
+    <script src="https://cdn.jsdelivr.net/npm/leaflet-velocity@1.8.1/dist/leaflet-velocity.min.js"></script>
+    <script>
+    document.addEventListener("DOMContentLoaded", function() {{
+        var mapElement = document.querySelector('.folium-map');
+        if (!mapElement) return;
+        var map = window[mapElement.id];
+        if (!map) return;
+
+        var overlays = {{}};
+        for (var id in map._layers) {{
+            var layer = map._layers[id];
+            if (layer instanceof L.TileLayer.WMS) {{
+                if (layer.wmsParams.layers.includes("presatm2") && !layer.wmsParams.styles)
+                    overlays["Presión Atmosférica ({pressure_date})"] = layer;
+                if (layer.wmsParams.styles && layer.wmsParams.styles.includes("6_presatm_iso"))
+                    overlays["Isolíneas Presión"] = layer;
+                if (layer.wmsParams.layers.includes("Nubes_v2"))
+                    overlays["Nubes ({nubes_date})"] = layer;
+                if (layer.wmsParams.layers.includes("Precip_GFS_v1"))
+                    overlays["Precipitación ({precip_date})"] = layer;
+            }}
+        }}
+
+        var windPlaceholder = L.featureGroup().addTo(map);
+        var wavePlaceholder = L.featureGroup().addTo(map);
+
+        overlays["Viento ({wind_date})"] = windPlaceholder;
+        overlays["Oleaje ({wave_date})"] = wavePlaceholder;
+
+        L.control.layers(null, overlays, {{collapsed: false}}).addTo(map);
+
+        Promise.all([
+            fetch('/doma_met/static/wind_data_latest.json?t=' + Date.now()).then(function(r) {{ return r.json(); }}),
+            fetch('/doma_met/static/wave_data_latest.json?t=' + Date.now()).then(function(r) {{ return r.json(); }})
+        ]).then(function([windData, waveData]) {{
+            window.windData = windData;
+
+            var windLayer = L.velocityLayer({{
+                data: windData, maxVelocity: 20, velocityScale: 0.01,
+                displayValues: true,
+                displayOptions: {{velocityType: 'Viento', position: 'bottomleft', emptyString: 'Sin datos'}},
+                colorScale: ['black','black'],
+            }}).addTo(map);
+            windPlaceholder.addLayer(windLayer);
+
+            var waveParticleLayer = L.velocityLayer({{
+                data: waveData, maxVelocity: 10, velocityScale: 0.03,
+                particleMultiplier: 0.0005, particleAge: 200, lineWidth: 4,
+                displayValues: true,
+                displayOptions: {{velocityType: 'Oleaje', position: 'bottomleft', emptyString: 'Sin datos'}},
+                colorScale: ["#003f5c","#2f4b7c","#665191","#a05195","#d45087","#f95d6a","#ff7c43","#ffa600"],
+            }}).addTo(map);
+            wavePlaceholder.addLayer(waveParticleLayer);
+        }}).catch(function(err) {{ console.error("Error:", err); }});
+
+    }});
+    </script>
+    """
+
+    click_script = """
+    <script>
+    (function() {
+        var mapDiv = document.querySelector('.folium-map');
+        if (!mapDiv) return;
+        var mapId = mapDiv.id;
+        var map = window[mapId];
+        if (!map) return;
+
+        var proxyUrl = "/doma_met/proxy_wms_featureinfo";
+        var wmsLayer = "Ifop_Sapo:presatm2";
+
+        function buildFeatureInfoParams(latlng) {
+            var point = map.latLngToContainerPoint(latlng, map.getZoom());
+            var size = map.getSize();
+            var bounds = map.getBounds();
+            var sw = bounds.getSouthWest();
+            var ne = bounds.getNorthEast();
+            return {
+                SERVICE: 'WMS', REQUEST: 'GetFeatureInfo', VERSION: '1.1.1',
+                SRS: 'EPSG:4326',
+                BBOX: [sw.lng, sw.lat, ne.lng, ne.lat].join(','),
+                WIDTH: size.x, HEIGHT: size.y,
+                LAYERS: wmsLayer, QUERY_LAYERS: wmsLayer,
+                INFO_FORMAT: 'application/json',
+                X: Math.round(point.x), Y: Math.round(point.y)
+            };
+        }
+
+        async function consultarPresion(latlng) {
+            var params = buildFeatureInfoParams(latlng);
+            var qs = Object.entries(params).map(function(kv) {
+                return kv[0] + "=" + encodeURIComponent(kv[1]);
+            }).join("&");
+            try {
+                var resp = await fetch(proxyUrl + '?' + qs);
+                if (!resp.ok) return null;
+                var json = await resp.json();
+                if (json.features && json.features.length > 0 &&
+                    json.features[0].properties && json.features[0].properties.MSLP !== undefined) {
+                    var val = json.features[0].properties.MSLP;
+                    var num = Number(val);
+                    if (num !== 0 && isFinite(num)) return num.toFixed(2) + ' hPa';
+                }
+            } catch(e) {}
+            return null;
+        }
+
+        function getWindAtLatLng(latlng) {
+            if (!window.windData) return null;
+            var uData = window.windData[0];
+            var vData = window.windData[1];
+            var nx = uData.header.nx, ny = uData.header.ny;
+            var lo1 = uData.header.lo1, la1 = uData.header.la1;
+            var dx = uData.header.dx, dy = uData.header.dy;
+            var i = Math.floor((latlng.lng - lo1) / dx);
+            var j = Math.floor((la1 - latlng.lat) / dy);
+            if (i < 0 || i >= nx || j < 0 || j >= ny) return null;
+            var idx = j * nx + i;
+            var u = uData.data[idx], v = vData.data[idx];
+            if (u == null || v == null) return null;
+            var speed = Math.sqrt(u*u + v*v);
+            var dir = Math.atan2(u, v) * (180 / Math.PI);
+            dir = (dir + 360) % 360;
+            return { speed: speed, direction: dir };
+        }
+
+        map.on('click', async function(e) {
+            var presion = await consultarPresion(e.latlng);
+            var wind = getWindAtLatLng(e.latlng);
+            var content = "";
+            if (presion) content += "<b>Presión:</b> " + presion + "<br>";
+            if (wind) {
+                content += "<b>Viento:</b><br>";
+                content += "<b>Velocidad:</b> " + wind.speed.toFixed(2) + " m/s<br>";
+                content += "<b>Dirección:</b> " + wind.direction.toFixed(1) + "°";
+            }
+            if (content !== "") {
+                L.popup().setLatLng(e.latlng).setContent(content).openOn(map);
+            }
+        });
+
+        map.on('moveend', function() {
+            var center = map.getCenter();
+            var zoom = map.getZoom();
+            fetch('/doma_met/actualizar_mapa', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ center: [center.lat, center.lng], zoom: zoom })
+            }).catch(function(err) { console.error('Error:', err); });
+        });
+    })();
+    </script>
+    """
+
+    temp_path = os.path.join(current_app.root_path, 'static', 'map_doma_met.html')
+    m.save(temp_path)
+
+    with open(temp_path, encoding='utf-8') as f:
+        mapa_html = f.read()
+
+    mapa_html = mapa_html.replace(
+        '<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.3/dist/leaflet.js"></script>', '')
+    mapa_html = mapa_html.replace(
+        '<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.3/dist/leaflet.css"/>', '')
+
+    mapa_html = mapa_html.replace('</body>', map_setup_script + '</body>')
+    mapa_html = mapa_html.replace('</body>', click_script + '</body>')
+
+    return render_template('doma_met.html', mapa_html=mapa_html,
+                           pressure_date=pressure_date, nubes_date=nubes_date,
+                           precip_date=precip_date,
+                           wind_date=wind_date, wave_date=wave_date)
