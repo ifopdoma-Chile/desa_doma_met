@@ -547,7 +547,10 @@ def doma_met():
                 // refresca el TIME; cuando terminen de cargar los tiles visibles,
                 // se dispara "load" de la capa y avanzamos
                 fcLayer.off("load").once("load", function() { busy = false; });
-                fcLayer.setParams({TIME: times[idx]}, true);
+                // IMPORTANTE: setParams SIN segundo argumento (noRedraw) para que
+                // redibuje los tiles con el nuevo TIME. Pasar `true` evitaba el
+                // redibujado -> la capa nunca cambiaba de frame (bug).
+                fcLayer.setParams({TIME: times[idx]});
                 // red de seguridad: nunca atascarse mas de 6s en un frame
                 setTimeout(function(){ if (busy) busy = false; }, 6000);
             } else {
