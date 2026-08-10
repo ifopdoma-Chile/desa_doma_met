@@ -433,7 +433,7 @@ def doma_met():
         overlay=True,
         control=True,
         opacity=0.8,
-        tileSize=256,
+        tileSize=512,   # tiles grandes: ~4-6 por frame en vez de ~21 -> avance mucho mas fluido
         no_wrap=True,
     ).add_to(m)
 
