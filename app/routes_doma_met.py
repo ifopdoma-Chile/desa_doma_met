@@ -470,8 +470,10 @@ def doma_met():
                     overlays["Nubes ({nubes_date})"] = layer;
                 if (layer.wmsParams.layers.includes("Precip_GFS_v1"))
                     overlays["Precipitación ({precip_date})"] = layer;
-                if (layer.wmsParams.layers.includes("Precip_GFS_FC_v1"))
-                    overlays["Precipitación Avance ({precip_fc_date})"] = layer;
+            }}
+            else if (layer instanceof L.ImageOverlay && layer._url && layer._url.indexOf("Precip_GFS_FC_v1") !== -1) {{
+                // La capa de avance es un ImageOverlay (un GetMap por viewport, para fluidez)
+                overlays["Precipitación Avance ({precip_fc_date})"] = layer;
             }}
         }}
 
