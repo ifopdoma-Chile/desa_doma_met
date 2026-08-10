@@ -3,3 +3,4 @@ __pycache__/
 *.bak
 *.bak-*
 app/static/*_data_latest.json
+app/static/map_doma_met.html
