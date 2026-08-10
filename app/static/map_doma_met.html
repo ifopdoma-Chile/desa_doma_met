@@ -17,7 +17,7 @@
             <meta name="viewport" content="width=device-width,
                 initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
             <style>
-                #map_6c4814bbdbfdaa355c0e3f5032fd8d47 {
+                #map_4cac9a5f7b6027e79162cb43fc261cc6 {
                     position: relative;
                     width: 100.0%;
                     height: 100.0%;
@@ -58,14 +58,14 @@
 <body>
     
     
-            <div class="folium-map" id="map_6c4814bbdbfdaa355c0e3f5032fd8d47" ></div>
+            <div class="folium-map" id="map_4cac9a5f7b6027e79162cb43fc261cc6" ></div>
         
 </body>
 <script>
     
     
-            var map_6c4814bbdbfdaa355c0e3f5032fd8d47 = L.map(
-                "map_6c4814bbdbfdaa355c0e3f5032fd8d47",
+            var map_4cac9a5f7b6027e79162cb43fc261cc6 = L.map(
+                "map_4cac9a5f7b6027e79162cb43fc261cc6",
                 {
                     center: [-30.0, -72.0],
                     crs: L.CRS.EPSG3857,
@@ -87,7 +87,7 @@
 
         
     
-            var tile_layer_8040a10e5d64bd77ae488b58eac90e7c = L.tileLayer(
+            var tile_layer_54e35b879a43df299ed002a37381ebe5 = L.tileLayer(
                 "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
                 {
   "minZoom": 0,
@@ -104,10 +104,10 @@
             );
         
     
-            tile_layer_8040a10e5d64bd77ae488b58eac90e7c.addTo(map_6c4814bbdbfdaa355c0e3f5032fd8d47);
+            tile_layer_54e35b879a43df299ed002a37381ebe5.addTo(map_4cac9a5f7b6027e79162cb43fc261cc6);
         
     
-            var mouse_position_851c092cc03ddb4598e0c8e8086ee7f6 = new L.Control.MousePosition(
+            var mouse_position_548bbebb6ac6a53500ed25bff6c210a3 = new L.Control.MousePosition(
                 {
   "position": "bottomleft",
   "separator": " | ",
@@ -118,62 +118,62 @@
   "formatter": "\n            function(lat, lng) {\n                var virtual_lng = lng;\n                if (lng \u003e 0 \u0026\u0026 map.getCenter().lng \u003c -100) { virtual_lng = lng - 360; }\n                return `Lat: ${lat.toFixed(5)}, Lng: ${virtual_lng.toFixed(5)}`;\n            }\n            ",
 }
             );
-            mouse_position_851c092cc03ddb4598e0c8e8086ee7f6.options["latFormatter"] =
+            mouse_position_548bbebb6ac6a53500ed25bff6c210a3.options["latFormatter"] =
                 undefined;
-            mouse_position_851c092cc03ddb4598e0c8e8086ee7f6.options["lngFormatter"] =
+            mouse_position_548bbebb6ac6a53500ed25bff6c210a3.options["lngFormatter"] =
                 undefined;
-            map_6c4814bbdbfdaa355c0e3f5032fd8d47.addControl(mouse_position_851c092cc03ddb4598e0c8e8086ee7f6);
+            map_4cac9a5f7b6027e79162cb43fc261cc6.addControl(mouse_position_548bbebb6ac6a53500ed25bff6c210a3);
         
     
-            var locate_control_84d4e17b2ba68a44ad98f7a763f21fc6 = L.control.locate(
+            var locate_control_30db95f658fd8ea34467a0f849b24a33 = L.control.locate(
                 {"position": "bottomleft"}
-            ).addTo(map_6c4814bbdbfdaa355c0e3f5032fd8d47);
+            ).addTo(map_4cac9a5f7b6027e79162cb43fc261cc6);
             
         
     
-            var macro_element_26c3de31b61747534883d33930f6433d = L.tileLayer.wms(
+            var macro_element_98eebbfe3a3e8bb8208142dd2c005bba = L.tileLayer.wms(
                 "https://gis-eco.ifop.cl/geoserver/Ifop_Sapo/wms",
                 {"attribution": "", "format": "image/png", "layers": "Ifop_Sapo:presatm2", "noWrap": true, "opacity": 0.5, "styles": "", "tileSize": 256, "transparent": true, "version": "1.1.1"}
             );
         
     
-            macro_element_26c3de31b61747534883d33930f6433d.addTo(map_6c4814bbdbfdaa355c0e3f5032fd8d47);
+            macro_element_98eebbfe3a3e8bb8208142dd2c005bba.addTo(map_4cac9a5f7b6027e79162cb43fc261cc6);
         
     
-            var macro_element_8fb71ee53d7561ef14e5723271fa5c01 = L.tileLayer.wms(
+            var macro_element_2b3f9bcd27e10e5e21e4f27f0a09ff2d = L.tileLayer.wms(
                 "https://gis-eco.ifop.cl/geoserver/Ifop_Sapo/wms",
                 {"attribution": "", "format": "image/png", "layers": "Ifop_Sapo:presatm2", "noWrap": true, "opacity": 1.0, "styles": "6_presatm_iso", "tileSize": 256, "transparent": true, "version": "1.1.1"}
             );
         
     
-            macro_element_8fb71ee53d7561ef14e5723271fa5c01.addTo(map_6c4814bbdbfdaa355c0e3f5032fd8d47);
+            macro_element_2b3f9bcd27e10e5e21e4f27f0a09ff2d.addTo(map_4cac9a5f7b6027e79162cb43fc261cc6);
         
     
-            var macro_element_a81c18bb0ce9c75054ebc3acf9da5ecf = L.tileLayer.wms(
+            var macro_element_21c456a9b221d156d94c3d0d3e4c6b31 = L.tileLayer.wms(
                 "https://gis-eco.ifop.cl/geoserver/Ifop_Sapo/wms",
                 {"attribution": "", "format": "image/png", "layers": "Ifop_Sapo:Nubes_v2", "noWrap": true, "opacity": 0.95, "styles": "9_Nubes", "tileSize": 256, "transparent": true, "version": "1.1.1"}
             );
         
     
-            macro_element_a81c18bb0ce9c75054ebc3acf9da5ecf.addTo(map_6c4814bbdbfdaa355c0e3f5032fd8d47);
+            macro_element_21c456a9b221d156d94c3d0d3e4c6b31.addTo(map_4cac9a5f7b6027e79162cb43fc261cc6);
         
     
-            var macro_element_afd2e1da7b69230ce43fce8fee69d7d7 = L.tileLayer.wms(
+            var macro_element_79958112230e33a08d33219cf1d0436e = L.tileLayer.wms(
                 "https://gis-eco.ifop.cl/geoserver/Ifop_Sapo/wms",
                 {"attribution": "", "format": "image/png", "layers": "Ifop_Sapo:Precip_GFS_v1", "noWrap": true, "opacity": 0.85, "styles": "Precip_heatmap", "tileSize": 256, "transparent": true, "version": "1.1.1"}
             );
         
     
-            macro_element_afd2e1da7b69230ce43fce8fee69d7d7.addTo(map_6c4814bbdbfdaa355c0e3f5032fd8d47);
+            macro_element_79958112230e33a08d33219cf1d0436e.addTo(map_4cac9a5f7b6027e79162cb43fc261cc6);
         
     
-            var macro_element_aa738b5fbfc4198c71b74b6d13b07a46 = L.tileLayer.wms(
+            var macro_element_6ff730c0b5f211f244057208953dc81a = L.tileLayer.wms(
                 "https://gis-eco.ifop.cl/geoserver/Ifop_Sapo/wms",
                 {"attribution": "", "format": "image/png", "layers": "Ifop_Sapo:Precip_GFS_FC_v1", "noWrap": true, "opacity": 0.8, "styles": "Precip_heatmap", "tileSize": 256, "transparent": true, "version": "1.1.1"}
             );
         
     
-            macro_element_aa738b5fbfc4198c71b74b6d13b07a46.addTo(map_6c4814bbdbfdaa355c0e3f5032fd8d47);
+            macro_element_6ff730c0b5f211f244057208953dc81a.addTo(map_4cac9a5f7b6027e79162cb43fc261cc6);
         
 </script>
 </html>

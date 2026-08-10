@@ -516,6 +516,8 @@ def doma_met():
         var times = __PRECIP_FC_TIMES__;
         if (!times || times.length < 2) return;
 
+        map.options.fadeAnimation = false;
+
         var fcLayer = null;
         for (var id in map._layers) {
             var layer = map._layers[id];
@@ -530,6 +532,7 @@ def doma_met():
 
         var idx = 0;
         var playing = false;
+        var busy = false;   // true mientras el frame actual aun se esta dibujando
         var timer = null;
 
         function fmt(t) {
@@ -537,9 +540,19 @@ def doma_met():
             return d.toISOString().slice(0, 16).replace("T", " ") + " UTC";
         }
 
-        function setTime(i) {
+        function setTime(i, waitForPaint) {
             idx = Math.max(0, Math.min(times.length - 1, i));
-            fcLayer.setParams({TIME: times[idx]});
+            if (waitForPaint === true) {
+                busy = true;
+                // refresca el TIME; cuando terminen de cargar los tiles visibles,
+                // se dispara "load" de la capa y avanzamos
+                fcLayer.off("load").once("load", function() { busy = false; });
+                fcLayer.setParams({TIME: times[idx]}, true);
+                // red de seguridad: nunca atascarse mas de 6s en un frame
+                setTimeout(function(){ if (busy) busy = false; }, 6000);
+            } else {
+                fcLayer.setParams({TIME: times[idx]});
+            }
             var lbl = document.getElementById("precipFcLabel");
             if (lbl) lbl.textContent = fmt(times[idx]);
             var sld = document.getElementById("precipFcSlider");
@@ -570,10 +583,16 @@ def doma_met():
             } else {
                 playing = true;
                 document.getElementById("precipFcPlay").textContent = "⏸ Pausa";
-                timer = setInterval(function() {
-                    if (idx >= times.length - 1) { setTime(0); }
-                    else { setTime(idx + 1); }
-                }, 1200);
+                function advance() {
+                    if (!playing) return;
+                    // esperar a que el frame actual termine de dibujarse
+                    if (busy) { timer = setTimeout(advance, 120); return; }
+                    var nxt = (idx >= times.length - 1) ? 0 : idx + 1;
+                    setTime(nxt, true);
+                    // pequena pausa para percibir el frame
+                    timer = setTimeout(advance, 650);
+                }
+                advance();
             }
         });
 
