@@ -424,25 +424,25 @@ def doma_met():
     ).add_to(m)
 
     # Capa "Precipitación Avance": IMAGE OVERLAY de un solo GetMap por viewport.
-    # En vez de tiles (muchas requests por frame, redibujado en mosaico), pedimos
-    # UNA imagen del area visible por frame -> el cambio de TIME es de golpe y fluido.
-    # El JS del slider (precip_fc_script) actualiza la URL con TIME y bounds en cada paso/zoom.
-    import urllib.parse as _up
-    _fc_t0 = precip_fc_times[0]
-    _fc_bounds = [[-57.0, -82.0], [-12.0, -62.0]]  # rango extendido de Chile inicial
-    _fc_img = (GEOSERVER_WMS_URL + "?service=WMS&version=1.1.1&request=GetMap"
-               + "&layers=Ifop_Sapo:Precip_GFS_FC_v1&styles=Precip_heatmap"
-               + "&format=image/png&transparent=true&srs=EPSG:4326"
-               + "&bbox=-82,-57,-62,-12&width=1200&height=900"
-               + "&time=" + _up.quote(_fc_t0))
-    folium.raster_layers.ImageOverlay(
-        image=_fc_img,
-        bounds=_fc_bounds,
-        name=f'Precipitación Avance ({precip_fc_date})',
-        opacity=0.8,
-        overlay=True,
-        control=True,
-    ).add_to(m)
+    # El JS usa doble buffer y precarga de frames para evitar parpadeos y pausas
+    # visibles entre solicitudes WMS.
+    if precip_fc_times:
+        import urllib.parse as _up
+        _fc_t0 = precip_fc_times[0]
+        _fc_bounds = [[-57.0, -82.0], [-12.0, -62.0]]  # rango extendido de Chile inicial
+        _fc_img = (GEOSERVER_WMS_URL + "?service=WMS&version=1.1.1&request=GetMap"
+                   + "&layers=Ifop_Sapo:Precip_GFS_FC_v1&styles=Precip_heatmap"
+                   + "&format=image/png&transparent=true&srs=EPSG:4326"
+                   + "&bbox=-82,-57,-62,-12&width=1200&height=900"
+                   + "&time=" + _up.quote(_fc_t0))
+        folium.raster_layers.ImageOverlay(
+            image=_fc_img,
+            bounds=_fc_bounds,
+            name=f'Precipitación Avance ({precip_fc_date})',
+            opacity=0.8,
+            overlay=True,
+            control=True,
+        ).add_to(m)
 
     wind_date = wind_metadata["fecha_dato"] if wind_metadata else "Sin fecha"
     wind_date = wind_date.split(" ")[0] if wind_date != "Sin fecha" else "Sin fecha"
@@ -536,53 +536,130 @@ def doma_met():
             }
         }
         if (!fcLayer) return;
-        // Garantizar que la capa FC esté visible en el mapa (por si el overlay no está marcado)
         if (!map.hasLayer(fcLayer)) { map.addLayer(fcLayer); }
 
-        // Construye la URL GetMap con el TIME y los bounds actuales del viewport.
-        function fcUrl(t, bounds) {
-            var w = map.getSize().x, h = map.getSize().y;
-            var bb = bounds ? bounds.toBBoxString() : (-82 + "," + -57 + "," + -62 + "," + -12);
-            return fcLayer._url.split("?")[0]
-                + "?service=WMS&version=1.1.1&request=GetMap"
-                + "&layers=Ifop_Sapo:Precip_GFS_FC_v1&styles=Precip_heatmap"
-                + "&format=image/png&transparent=true&srs=EPSG:4326"
-                + "&bbox=" + bb + "&width=" + w + "&height=" + h
-                + "&time=" + encodeURIComponent(t);
-        }
-        function refreshOverlay(t) {
-            var b = map.getBounds();
-            fcLayer.setBounds(b);          // overlay cubre el viewport actual
-            fcLayer.setUrl(fcUrl(t, b));   // dispara el evento "load" al terminar
-        }
-
+        var baseUrl = fcLayer._url.split("?")[0];
+        var targetOpacity = 0.8;
+        var playScale = 0.65;      // menor resolucion durante animacion: mas rapido y suficiente visualmente
+        var preloadCount = 4;      // cantidad de frames futuros que se descargan en segundo plano
+        var frameDelay = 520;      // cadencia de reproduccion cuando los frames ya estan listos
         var idx = 0;
         var playing = false;
-        var busy = false;   // true mientras el frame actual aun se esta dibujando
+        var busy = false;
         var timer = null;
+        var dragTimer = null;
+        var moveTimer = null;
+        var cache = Object.create(null);
+
+        var bufferLayer = L.imageOverlay(fcLayer._url, fcLayer.getBounds(), {
+            opacity: 0,
+            interactive: false
+        }).addTo(map);
+
+        function styleLayer(layer) {
+            if (!layer || !layer.getElement()) return;
+            layer.getElement().style.transition = "opacity 160ms linear";
+            layer.getElement().style.willChange = "opacity";
+        }
+        fcLayer.once("load", function() { styleLayer(fcLayer); });
+        bufferLayer.once("load", function() { styleLayer(bufferLayer); });
+        setTimeout(function() { styleLayer(fcLayer); styleLayer(bufferLayer); }, 0);
 
         function fmt(t) {
             var d = new Date(t);
+            if (isNaN(d.getTime())) return String(t).slice(0, 16).replace("T", " ") + " UTC";
             return d.toISOString().slice(0, 16).replace("T", " ") + " UTC";
         }
-
-        function setTime(i, waitForPaint) {
-            idx = Math.max(0, Math.min(times.length - 1, i));
-            if (waitForPaint === true) {
-                busy = true;
-                // refresca el TIME; cuando termina de cargar la imagen del frame,
-                // se dispara "load" del imageOverlay y avanzamos (sincronizado con el render)
-                fcLayer.off("load").once("load", function() { busy = false; });
-                refreshOverlay(times[idx]);
-                // red de seguridad: nunca atascarse mas de 6s en un frame
-                setTimeout(function(){ if (busy) busy = false; }, 6000);
-            } else {
-                refreshOverlay(times[idx]);
-            }
+        function setUi(i) {
             var lbl = document.getElementById("precipFcLabel");
-            if (lbl) lbl.textContent = fmt(times[idx]);
+            if (lbl) lbl.textContent = fmt(times[i]);
             var sld = document.getElementById("precipFcSlider");
-            if (sld) sld.value = idx;
+            if (sld) sld.value = i;
+        }
+        function currentBounds() {
+            return map.getBounds();
+        }
+        function roundedSize(scale) {
+            var s = map.getSize();
+            return {
+                w: Math.max(320, Math.round(s.x * scale)),
+                h: Math.max(240, Math.round(s.y * scale))
+            };
+        }
+        function fcUrl(t, bounds, scale) {
+            var size = roundedSize(scale || 1);
+            var bb = bounds ? bounds.toBBoxString() : "-82,-57,-62,-12";
+            return baseUrl
+                + "?service=WMS&version=1.1.1&request=GetMap"
+                + "&layers=Ifop_Sapo:Precip_GFS_FC_v1&styles=Precip_heatmap"
+                + "&format=image/png&transparent=true&srs=EPSG:4326"
+                + "&bbox=" + bb + "&width=" + size.w + "&height=" + size.h
+                + "&time=" + encodeURIComponent(t);
+        }
+        function preloadUrl(url) {
+            if (cache[url]) return;
+            cache[url] = "loading";
+            var img = new Image();
+            img.onload = function() { cache[url] = "ready"; };
+            img.onerror = function() { delete cache[url]; };
+            img.src = url;
+        }
+        function preloadAround(fromIdx) {
+            var b = currentBounds();
+            var scale = playing ? playScale : 1;
+            for (var n = 1; n <= preloadCount; n++) {
+                var j = (fromIdx + n) % times.length;
+                preloadUrl(fcUrl(times[j], b, scale));
+            }
+        }
+        function swapLayers() {
+            var oldLayer = fcLayer;
+            fcLayer = bufferLayer;
+            bufferLayer = oldLayer;
+            fcLayer.setOpacity(targetOpacity);
+            bufferLayer.setOpacity(0);
+            styleLayer(fcLayer);
+            styleLayer(bufferLayer);
+        }
+        function showFrame(i, opts) {
+            opts = opts || {};
+            idx = Math.max(0, Math.min(times.length - 1, i));
+            setUi(idx);
+
+            var b = currentBounds();
+            var scale = opts.preview ? playScale : 1;
+            var url = fcUrl(times[idx], b, scale);
+            busy = true;
+
+            bufferLayer.setBounds(b);
+            bufferLayer.off("load").once("load", function() {
+                if (!busy) return;
+                busy = false;
+                cache[url] = "ready";
+                swapLayers();
+                preloadAround(idx);
+            });
+            bufferLayer.setUrl(url);
+            preloadAround(idx);
+            setTimeout(function() { busy = false; }, 6000);
+        }
+        function stopPlaying() {
+            playing = false;
+            busy = false;
+            if (timer) clearTimeout(timer);
+            timer = null;
+            var btn = document.getElementById("precipFcPlay");
+            if (btn) btn.textContent = "▶ Reproducir";
+        }
+        function scheduleAdvance() {
+            if (!playing) return;
+            if (busy) {
+                timer = setTimeout(scheduleAdvance, 80);
+                return;
+            }
+            var nextIdx = (idx >= times.length - 1) ? 0 : idx + 1;
+            showFrame(nextIdx, {preview: true});
+            timer = setTimeout(scheduleAdvance, frameDelay);
         }
 
         var div = L.DomUtil.create("div", "leaflet-control");
@@ -599,38 +676,41 @@ def doma_met():
         control.addTo(map);
 
         document.getElementById("precipFcSlider").addEventListener("input", function(e) {
-            setTime(parseInt(e.target.value));
+            var next = parseInt(e.target.value, 10);
+            idx = Math.max(0, Math.min(times.length - 1, next));
+            setUi(idx);
+            if (dragTimer) clearTimeout(dragTimer);
+            dragTimer = setTimeout(function() {
+                if (!playing) showFrame(idx, {preview: true});
+            }, 180);
+        });
+        document.getElementById("precipFcSlider").addEventListener("change", function(e) {
+            stopPlaying();
+            showFrame(parseInt(e.target.value, 10), {preview: false});
         });
         document.getElementById("precipFcPlay").addEventListener("click", function(e) {
             e.stopPropagation();
             if (playing) {
-                clearTimeout(timer); playing = false;
-                document.getElementById("precipFcPlay").textContent = "▶ Reproducir";
-            } else {
-                playing = true;
-                document.getElementById("precipFcPlay").textContent = "⏸ Pausa";
-                function advance() {
-                    if (!playing) return;
-                    // esperar a que el frame actual termine de dibujarse
-                    if (busy) { timer = setTimeout(advance, 120); return; }
-                    var nxt = (idx >= times.length - 1) ? 0 : idx + 1;
-                    setTime(nxt, true);
-                    // pausa para percibir el frame (tiles 512 -> frame se completa rapido)
-                    timer = setTimeout(advance, 700);
-                }
-                advance();
+                stopPlaying();
+                showFrame(idx, {preview: false});
+                return;
             }
+            playing = true;
+            document.getElementById("precipFcPlay").textContent = "⏸ Pausa";
+            preloadAround(idx);
+            scheduleAdvance();
         });
 
-        // Al cambiar zoom/pan, re-solicitar el frame actual a la nueva resolucion/viewport
-        var _mv_timer = null;
         map.on("moveend zoomend", function() {
-            if (_mv_timer) clearTimeout(_mv_timer);
-            _mv_timer = setTimeout(function() { refreshOverlay(times[idx]); }, 250);
+            if (moveTimer) clearTimeout(moveTimer);
+            moveTimer = setTimeout(function() {
+                preloadAround(idx);
+                showFrame(idx, {preview: playing});
+            }, 250);
         });
 
-        // Mostrar primer tiempo por defecto (el play avanza desde el inicio)
-        setTime(0);
+        setUi(0);
+        preloadAround(0);
     });
     </script>
     """.replace("__PRECIP_FC_TIMES__", precip_fc_times_json)
