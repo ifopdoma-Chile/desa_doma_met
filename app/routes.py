@@ -34,7 +34,7 @@ def proxy_wms_featureinfo():
     url_wms = f"{GEOSERVER_URL}/Ifop_Sapo/wms"
     allowed = ['SERVICE', 'VERSION', 'REQUEST', 'LAYERS', 'QUERY_LAYERS',
                'STYLES', 'SRS', 'BBOX', 'WIDTH', 'HEIGHT', 'X', 'Y',
-               'INFO_FORMAT', 'FEATURE_COUNT', 'TILED']
+               'INFO_FORMAT', 'FEATURE_COUNT', 'TILED', 'TIME']
     params = {k: v for k, v in request.args.items() if k.upper() in allowed}
     try:
         backend_r = requests.get(url_wms, params=params, timeout=10)

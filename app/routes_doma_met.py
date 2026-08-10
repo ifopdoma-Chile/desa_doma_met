@@ -541,6 +541,14 @@ def doma_met():
         if (!fcLayer) return;
         if (!map.hasLayer(fcLayer)) { map.addLayer(fcLayer); }
 
+        var originalFcLayer = fcLayer;
+        window.__domametLayers = window.__domametLayers || {};
+        window.__domametLayers.precipFc = {
+            active: map.hasLayer(originalFcLayer),
+            currentTime: times[0],
+            layerName: "Ifop_Sapo:Precip_GFS_FC_v1"
+        };
+
         var baseUrl = fcLayer._url.split("?")[0];
         var targetOpacity = 0.8;
         var playScale = 0.65;      // menor resolucion durante animacion: mas rapido y suficiente visualmente
@@ -558,6 +566,22 @@ def doma_met():
             opacity: 0,
             interactive: false
         }).addTo(map);
+
+        map.on("overlayadd", function(e) {
+            if (e.layer !== originalFcLayer) return;
+            window.__domametLayers.precipFc.active = true;
+            if (!map.hasLayer(bufferLayer)) bufferLayer.addTo(map);
+            showFrame(idx, {preview: false});
+        });
+        map.on("overlayremove", function(e) {
+            if (e.layer !== originalFcLayer) return;
+            window.__domametLayers.precipFc.active = false;
+            stopPlaying();
+            originalFcLayer.setOpacity(0);
+            fcLayer.setOpacity(0);
+            bufferLayer.setOpacity(0);
+            if (map.hasLayer(bufferLayer)) map.removeLayer(bufferLayer);
+        });
 
         function styleLayer(layer) {
             if (!layer || !layer.getElement()) return;
@@ -578,6 +602,9 @@ def doma_met():
             if (lbl) lbl.textContent = fmt(times[i]);
             var sld = document.getElementById("precipFcSlider");
             if (sld) sld.value = i;
+            if (window.__domametLayers && window.__domametLayers.precipFc) {
+                window.__domametLayers.precipFc.currentTime = times[i];
+            }
         }
         function currentBounds() {
             return map.getBounds();
@@ -608,6 +635,8 @@ def doma_met():
             img.src = url;
         }
         function preloadAround(fromIdx) {
+            if (window.__domametLayers && window.__domametLayers.precipFc &&
+                window.__domametLayers.precipFc.active === false) return;
             var b = currentBounds();
             var scale = playing ? playScale : 1;
             for (var n = 1; n <= preloadCount; n++) {
@@ -628,6 +657,12 @@ def doma_met():
             opts = opts || {};
             idx = Math.max(0, Math.min(times.length - 1, i));
             setUi(idx);
+            if (window.__domametLayers && window.__domametLayers.precipFc &&
+                window.__domametLayers.precipFc.active === false) {
+                busy = false;
+                return;
+            }
+            if (!map.hasLayer(bufferLayer)) bufferLayer.addTo(map);
 
             var b = currentBounds();
             var scale = opts.preview ? playScale : 1;
@@ -728,50 +763,40 @@ def doma_met():
         if (!map) return;
 
         var proxyUrl = "/doma_met/proxy_wms_featureinfo";
-        var wmsLayer = "Ifop_Sapo:presatm2";
 
-        function buildFeatureInfoParams(latlng) {
+        function buildFeatureInfoParams(latlng, cfg) {
             var point = map.latLngToContainerPoint(latlng, map.getZoom());
             var size = map.getSize();
             var bounds = map.getBounds();
             var sw = bounds.getSouthWest();
             var ne = bounds.getNorthEast();
-            return {
+            var params = {
                 SERVICE: 'WMS', REQUEST: 'GetFeatureInfo', VERSION: '1.1.1',
                 SRS: 'EPSG:4326',
                 BBOX: [sw.lng, sw.lat, ne.lng, ne.lat].join(','),
                 WIDTH: size.x, HEIGHT: size.y,
-                LAYERS: wmsLayer, QUERY_LAYERS: wmsLayer,
+                LAYERS: cfg.layer, QUERY_LAYERS: cfg.layer,
+                STYLES: cfg.styles || '',
                 INFO_FORMAT: 'application/json',
+                FEATURE_COUNT: 1,
                 X: Math.round(point.x), Y: Math.round(point.y)
             };
+            if (cfg.time) params.TIME = cfg.time;
+            return params;
         }
 
-        async function consultarPresion(latlng) {
-            var params = buildFeatureInfoParams(latlng);
-            var qs = Object.entries(params).map(function(kv) {
+        function qs(params) {
+            return Object.entries(params).map(function(kv) {
                 return kv[0] + "=" + encodeURIComponent(kv[1]);
             }).join("&");
-            try {
-                var resp = await fetch(proxyUrl + '?' + qs);
-                if (!resp.ok) return null;
-                var json = await resp.json();
-                if (json.features && json.features.length > 0 &&
-                    json.features[0].properties && json.features[0].properties.MSLP !== undefined) {
-                    var val = json.features[0].properties.MSLP;
-                    var num = Number(val);
-                    if (num !== 0 && isFinite(num)) return num.toFixed(2) + ' hPa';
-                }
-            } catch(e) {}
-            return null;
         }
 
-        function isPressureInfoActive() {
+        function isWmsLayerActive(match) {
             for (var id in map._layers) {
                 var layer = map._layers[id];
                 if (layer instanceof L.TileLayer.WMS &&
                     layer.wmsParams && layer.wmsParams.layers &&
-                    layer.wmsParams.layers.indexOf("presatm2") !== -1 &&
+                    layer.wmsParams.layers.indexOf(match) !== -1 &&
                     map.hasLayer(layer)) {
                     return true;
                 }
@@ -783,6 +808,81 @@ def doma_met():
             return !!(window.__domametLayers &&
                       window.__domametLayers.wind &&
                       map.hasLayer(window.__domametLayers.wind));
+        }
+
+        function isPrecipFcInfoActive() {
+            return !!(window.__domametLayers &&
+                      window.__domametLayers.precipFc &&
+                      window.__domametLayers.precipFc.active !== false);
+        }
+
+        function firstNumericProperty(props, preferred) {
+            preferred = preferred || [];
+            for (var i = 0; i < preferred.length; i++) {
+                var key = preferred[i];
+                if (props[key] !== undefined) {
+                    var n = Number(props[key]);
+                    if (isFinite(n) && n !== 0) return n;
+                }
+            }
+            var skip = {id: true, fid: true, time: true, timestamp: true};
+            for (var k in props) {
+                if (skip[String(k).toLowerCase()]) continue;
+                var val = props[k];
+                if (val === null || val === undefined || val === '') continue;
+                var num = Number(val);
+                if (isFinite(num) && num !== 0) return num;
+            }
+            return null;
+        }
+
+        async function queryWmsValue(latlng, cfg) {
+            try {
+                var resp = await fetch(proxyUrl + '?' + qs(buildFeatureInfoParams(latlng, cfg)));
+                if (!resp.ok) return null;
+                var json = await resp.json();
+                if (!json.features || json.features.length === 0 || !json.features[0].properties) return null;
+                var value = firstNumericProperty(json.features[0].properties, cfg.preferred);
+                if (value === null) return null;
+                return {
+                    label: cfg.label,
+                    value: value,
+                    decimals: cfg.decimals === undefined ? 2 : cfg.decimals,
+                    unit: cfg.unit || ''
+                };
+            } catch(e) {
+                return null;
+            }
+        }
+
+        function activeWmsInfoLayers() {
+            var layers = [];
+            if (isWmsLayerActive('presatm2')) {
+                layers.push({
+                    label: 'Presión', layer: 'Ifop_Sapo:presatm2',
+                    preferred: ['MSLP'], decimals: 2, unit: ' hPa'
+                });
+            }
+            if (isWmsLayerActive('Nubes_v2')) {
+                layers.push({
+                    label: 'Nubes', layer: 'Ifop_Sapo:Nubes_v2', styles: '9_Nubes',
+                    decimals: 2, unit: ''
+                });
+            }
+            if (isWmsLayerActive('Precip_GFS_v1')) {
+                layers.push({
+                    label: 'Precipitación', layer: 'Ifop_Sapo:Precip_GFS_v1', styles: 'Precip_heatmap',
+                    decimals: 2, unit: ' mm'
+                });
+            }
+            if (isPrecipFcInfoActive()) {
+                layers.push({
+                    label: 'Precipitación Avance', layer: 'Ifop_Sapo:Precip_GFS_FC_v1', styles: 'Precip_heatmap',
+                    time: window.__domametLayers.precipFc.currentTime,
+                    decimals: 2, unit: ' mm'
+                });
+            }
+            return layers;
         }
 
         function getWindAtLatLng(latlng) {
@@ -807,14 +907,19 @@ def doma_met():
         map.on('click', async function(e) {
             if (window.__medicionActiva) return;
 
-            var pressureActive = isPressureInfoActive();
+            var wmsLayers = activeWmsInfoLayers();
             var windActive = isWindInfoActive();
-            if (!pressureActive && !windActive) return;
+            if (wmsLayers.length === 0 && !windActive) return;
 
-            var presion = pressureActive ? await consultarPresion(e.latlng) : null;
-            var wind = windActive ? getWindAtLatLng(e.latlng) : null;
             var content = "";
-            if (presion) content += "<b>Presión:</b> " + presion + "<br>";
+            for (var i = 0; i < wmsLayers.length; i++) {
+                var info = await queryWmsValue(e.latlng, wmsLayers[i]);
+                if (!info) continue;
+                content += "<b>" + info.label + ":</b> " +
+                    info.value.toFixed(info.decimals) + info.unit + "<br>";
+            }
+
+            var wind = windActive ? getWindAtLatLng(e.latlng) : null;
             if (wind) {
                 content += "<b>Viento:</b><br>";
                 content += "<b>Velocidad:</b> " + wind.speed.toFixed(2) + " m/s<br>";
