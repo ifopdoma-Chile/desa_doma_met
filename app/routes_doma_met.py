@@ -480,6 +480,9 @@ def doma_met():
         var windPlaceholder = L.featureGroup().addTo(map);
         // var wavePlaceholder = L.featureGroup().addTo(map);
 
+        window.__domametLayers = window.__domametLayers || {{}};
+        window.__domametLayers.wind = windPlaceholder;
+
         overlays["Viento ({wind_date})"] = windPlaceholder;
         // overlays["Oleaje ({wave_date})"] = wavePlaceholder;
 
@@ -763,6 +766,25 @@ def doma_met():
             return null;
         }
 
+        function isPressureInfoActive() {
+            for (var id in map._layers) {
+                var layer = map._layers[id];
+                if (layer instanceof L.TileLayer.WMS &&
+                    layer.wmsParams && layer.wmsParams.layers &&
+                    layer.wmsParams.layers.indexOf("presatm2") !== -1 &&
+                    map.hasLayer(layer)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        function isWindInfoActive() {
+            return !!(window.__domametLayers &&
+                      window.__domametLayers.wind &&
+                      map.hasLayer(window.__domametLayers.wind));
+        }
+
         function getWindAtLatLng(latlng) {
             if (!window.windData) return null;
             var uData = window.windData[0];
@@ -784,8 +806,13 @@ def doma_met():
 
         map.on('click', async function(e) {
             if (window.__medicionActiva) return;
-            var presion = await consultarPresion(e.latlng);
-            var wind = getWindAtLatLng(e.latlng);
+
+            var pressureActive = isPressureInfoActive();
+            var windActive = isWindInfoActive();
+            if (!pressureActive && !windActive) return;
+
+            var presion = pressureActive ? await consultarPresion(e.latlng) : null;
+            var wind = windActive ? getWindAtLatLng(e.latlng) : null;
             var content = "";
             if (presion) content += "<b>Presión:</b> " + presion + "<br>";
             if (wind) {
