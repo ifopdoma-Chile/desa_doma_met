@@ -556,6 +556,7 @@ def doma_met():
         var frameDelay = 520;      // cadencia de reproduccion cuando los frames ya estan listos
         var idx = 0;
         var playing = false;
+        var loopEnabled = false;
         var busy = false;
         var timer = null;
         var dragTimer = null;
@@ -695,8 +696,16 @@ def doma_met():
                 timer = setTimeout(scheduleAdvance, 80);
                 return;
             }
-            var nextIdx = (idx >= times.length - 1) ? 0 : idx + 1;
-            showFrame(nextIdx, {preview: true});
+            if (idx >= times.length - 1) {
+                if (!loopEnabled) {
+                    stopPlaying();
+                    showFrame(idx, {preview: false});
+                    return;
+                }
+                showFrame(0, {preview: true});
+            } else {
+                showFrame(idx + 1, {preview: true});
+            }
             timer = setTimeout(scheduleAdvance, frameDelay);
         }
 
@@ -706,6 +715,10 @@ def doma_met():
             '<div style="font-weight:700;color:#1954A2;margin-bottom:4px;">⏱ Avance Precipitación</div>' +
             '<input type="range" id="precipFcSlider" min="0" max="' + (times.length - 1) + '" value="' + idx + '" style="width:100%;">' +
             '<div id="precipFcLabel" style="margin-top:4px;font-weight:600;">' + fmt(times[idx]) + '</div>' +
+            '<label style="display:flex;align-items:center;gap:6px;margin-top:5px;font-size:11px;cursor:pointer;user-select:none;">' +
+                '<input type="checkbox" id="precipFcLoop" style="margin:0;">' +
+                '<span>Loop continuo</span>' +
+            '</label>' +
             '<button id="precipFcPlay" style="margin-top:4px;width:100%;background:#1954A2;color:#fff;border:none;border-radius:4px;padding:4px;cursor:pointer;">▶ Reproducir</button>';
         div.onclick = function(e) { L.DomEvent.stopPropagation(e); };
 
@@ -726,12 +739,18 @@ def doma_met():
             stopPlaying();
             showFrame(parseInt(e.target.value, 10), {preview: false});
         });
+        document.getElementById("precipFcLoop").addEventListener("change", function(e) {
+            loopEnabled = !!e.target.checked;
+        });
         document.getElementById("precipFcPlay").addEventListener("click", function(e) {
             e.stopPropagation();
             if (playing) {
                 stopPlaying();
                 showFrame(idx, {preview: false});
                 return;
+            }
+            if (!loopEnabled && idx >= times.length - 1) {
+                showFrame(0, {preview: true});
             }
             playing = true;
             document.getElementById("precipFcPlay").textContent = "⏸ Pausa";
