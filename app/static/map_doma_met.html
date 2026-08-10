@@ -17,7 +17,7 @@
             <meta name="viewport" content="width=device-width,
                 initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
             <style>
-                #map_6855966ca4223dd4ba48e2cb00adc0ce {
+                #map_e85301a533d53918430fc28ff2d81ea2 {
                     position: relative;
                     width: 100.0%;
                     height: 100.0%;
@@ -54,18 +54,33 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/ardhi/Leaflet.MousePosition/src/L.Control.MousePosition.min.css"/>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet-locatecontrol/0.66.2/L.Control.Locate.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet-locatecontrol/0.66.2/L.Control.Locate.min.css"/>
+    
+            
+                <style>
+                    .leaflet-image-layer {
+                        /* old android/safari*/
+                        image-rendering: -webkit-optimize-contrast;
+                        image-rendering: crisp-edges; /* safari */
+                        image-rendering: pixelated; /* chrome */
+                        image-rendering: -moz-crisp-edges; /* firefox */
+                        image-rendering: -o-crisp-edges; /* opera */
+                        -ms-interpolation-mode: nearest-neighbor; /* ie */
+                    }
+                </style>
+            
+        
 </head>
 <body>
     
     
-            <div class="folium-map" id="map_6855966ca4223dd4ba48e2cb00adc0ce" ></div>
+            <div class="folium-map" id="map_e85301a533d53918430fc28ff2d81ea2" ></div>
         
 </body>
 <script>
     
     
-            var map_6855966ca4223dd4ba48e2cb00adc0ce = L.map(
-                "map_6855966ca4223dd4ba48e2cb00adc0ce",
+            var map_e85301a533d53918430fc28ff2d81ea2 = L.map(
+                "map_e85301a533d53918430fc28ff2d81ea2",
                 {
                     center: [-30.0, -72.0],
                     crs: L.CRS.EPSG3857,
@@ -87,7 +102,7 @@
 
         
     
-            var tile_layer_4724ff58c70859fc358f70b3cd415180 = L.tileLayer(
+            var tile_layer_eb0c6b7cc02ee9d9c15d7faddaed3625 = L.tileLayer(
                 "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
                 {
   "minZoom": 0,
@@ -104,10 +119,10 @@
             );
         
     
-            tile_layer_4724ff58c70859fc358f70b3cd415180.addTo(map_6855966ca4223dd4ba48e2cb00adc0ce);
+            tile_layer_eb0c6b7cc02ee9d9c15d7faddaed3625.addTo(map_e85301a533d53918430fc28ff2d81ea2);
         
     
-            var mouse_position_0230ffb13a4c431a45f708a43d25d3f5 = new L.Control.MousePosition(
+            var mouse_position_bb65c5a7c73e5a18051a4da228c6a4a4 = new L.Control.MousePosition(
                 {
   "position": "bottomleft",
   "separator": " | ",
@@ -118,62 +133,65 @@
   "formatter": "\n            function(lat, lng) {\n                var virtual_lng = lng;\n                if (lng \u003e 0 \u0026\u0026 map.getCenter().lng \u003c -100) { virtual_lng = lng - 360; }\n                return `Lat: ${lat.toFixed(5)}, Lng: ${virtual_lng.toFixed(5)}`;\n            }\n            ",
 }
             );
-            mouse_position_0230ffb13a4c431a45f708a43d25d3f5.options["latFormatter"] =
+            mouse_position_bb65c5a7c73e5a18051a4da228c6a4a4.options["latFormatter"] =
                 undefined;
-            mouse_position_0230ffb13a4c431a45f708a43d25d3f5.options["lngFormatter"] =
+            mouse_position_bb65c5a7c73e5a18051a4da228c6a4a4.options["lngFormatter"] =
                 undefined;
-            map_6855966ca4223dd4ba48e2cb00adc0ce.addControl(mouse_position_0230ffb13a4c431a45f708a43d25d3f5);
+            map_e85301a533d53918430fc28ff2d81ea2.addControl(mouse_position_bb65c5a7c73e5a18051a4da228c6a4a4);
         
     
-            var locate_control_eaff90da46ae8ae8959c228fb26b8e01 = L.control.locate(
+            var locate_control_66c7afbc70ec1bcb00da6f1050ada357 = L.control.locate(
                 {"position": "bottomleft"}
-            ).addTo(map_6855966ca4223dd4ba48e2cb00adc0ce);
+            ).addTo(map_e85301a533d53918430fc28ff2d81ea2);
             
         
     
-            var macro_element_afe983d9a556bc8b09dbd92d6c84e653 = L.tileLayer.wms(
+            var macro_element_1a94b9b51833b99535b7397da2cfebb0 = L.tileLayer.wms(
                 "https://gis-eco.ifop.cl/geoserver/Ifop_Sapo/wms",
                 {"attribution": "", "format": "image/png", "layers": "Ifop_Sapo:presatm2", "noWrap": true, "opacity": 0.5, "styles": "", "tileSize": 256, "transparent": true, "version": "1.1.1"}
             );
         
     
-            macro_element_afe983d9a556bc8b09dbd92d6c84e653.addTo(map_6855966ca4223dd4ba48e2cb00adc0ce);
+            macro_element_1a94b9b51833b99535b7397da2cfebb0.addTo(map_e85301a533d53918430fc28ff2d81ea2);
         
     
-            var macro_element_bead17e7de4f7fef494157c5caac84ab = L.tileLayer.wms(
+            var macro_element_e82fa7d5e28194d707d5da5fe59322d5 = L.tileLayer.wms(
                 "https://gis-eco.ifop.cl/geoserver/Ifop_Sapo/wms",
                 {"attribution": "", "format": "image/png", "layers": "Ifop_Sapo:presatm2", "noWrap": true, "opacity": 1.0, "styles": "6_presatm_iso", "tileSize": 256, "transparent": true, "version": "1.1.1"}
             );
         
     
-            macro_element_bead17e7de4f7fef494157c5caac84ab.addTo(map_6855966ca4223dd4ba48e2cb00adc0ce);
+            macro_element_e82fa7d5e28194d707d5da5fe59322d5.addTo(map_e85301a533d53918430fc28ff2d81ea2);
         
     
-            var macro_element_8a655e298c6219a3ca398d277bbb4d63 = L.tileLayer.wms(
+            var macro_element_59a973c39b5d2d5460e25873de3545fa = L.tileLayer.wms(
                 "https://gis-eco.ifop.cl/geoserver/Ifop_Sapo/wms",
                 {"attribution": "", "format": "image/png", "layers": "Ifop_Sapo:Nubes_v2", "noWrap": true, "opacity": 0.95, "styles": "9_Nubes", "tileSize": 256, "transparent": true, "version": "1.1.1"}
             );
         
     
-            macro_element_8a655e298c6219a3ca398d277bbb4d63.addTo(map_6855966ca4223dd4ba48e2cb00adc0ce);
+            macro_element_59a973c39b5d2d5460e25873de3545fa.addTo(map_e85301a533d53918430fc28ff2d81ea2);
         
     
-            var macro_element_a6431e14f2509daadfd443c035f13145 = L.tileLayer.wms(
+            var macro_element_eb8c666f751f4f0078665eb94de2def3 = L.tileLayer.wms(
                 "https://gis-eco.ifop.cl/geoserver/Ifop_Sapo/wms",
                 {"attribution": "", "format": "image/png", "layers": "Ifop_Sapo:Precip_GFS_v1", "noWrap": true, "opacity": 0.85, "styles": "Precip_heatmap", "tileSize": 256, "transparent": true, "version": "1.1.1"}
             );
         
     
-            macro_element_a6431e14f2509daadfd443c035f13145.addTo(map_6855966ca4223dd4ba48e2cb00adc0ce);
+            macro_element_eb8c666f751f4f0078665eb94de2def3.addTo(map_e85301a533d53918430fc28ff2d81ea2);
         
     
-            var macro_element_9c95464904ad5e1071608980525889f0 = L.tileLayer.wms(
-                "https://gis-eco.ifop.cl/geoserver/Ifop_Sapo/wms",
-                {"attribution": "", "format": "image/png", "layers": "Ifop_Sapo:Precip_GFS_FC_v1", "noWrap": true, "opacity": 0.8, "styles": "Precip_heatmap", "tileSize": 512, "transparent": true, "version": "1.1.1"}
+            var image_overlay_c551974d9c95cc4f32b99ea92ad64ae2 = L.imageOverlay(
+                "https://gis-eco.ifop.cl/geoserver/Ifop_Sapo/wms?service=WMS\u0026version=1.1.1\u0026request=GetMap\u0026layers=Ifop_Sapo:Precip_GFS_FC_v1\u0026styles=Precip_heatmap\u0026format=image/png\u0026transparent=true\u0026srs=EPSG:4326\u0026bbox=-82,-57,-62,-12\u0026width=1200\u0026height=900\u0026time=2026-08-10T09%3A00%3A00.000Z",
+                [[-57.0, -82.0], [-12.0, -62.0]],
+                {
+  "opacity": 0.8,
+}
             );
         
     
-            macro_element_9c95464904ad5e1071608980525889f0.addTo(map_6855966ca4223dd4ba48e2cb00adc0ce);
+            image_overlay_c551974d9c95cc4f32b99ea92ad64ae2.addTo(map_e85301a533d53918430fc28ff2d81ea2);
         
 </script>
 </html>

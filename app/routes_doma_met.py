@@ -423,18 +423,25 @@ def doma_met():
         no_wrap=True,
     ).add_to(m)
 
-    folium.WmsTileLayer(
-        url=GEOSERVER_WMS_URL,
-        layers='Ifop_Sapo:Precip_GFS_FC_v1',
-        styles='Precip_heatmap',
+    # Capa "Precipitación Avance": IMAGE OVERLAY de un solo GetMap por viewport.
+    # En vez de tiles (muchas requests por frame, redibujado en mosaico), pedimos
+    # UNA imagen del area visible por frame -> el cambio de TIME es de golpe y fluido.
+    # El JS del slider (precip_fc_script) actualiza la URL con TIME y bounds en cada paso/zoom.
+    import urllib.parse as _up
+    _fc_t0 = precip_fc_times[0]
+    _fc_bounds = [[-57.0, -82.0], [-12.0, -62.0]]  # rango extendido de Chile inicial
+    _fc_img = (GEOSERVER_WMS_URL + "?service=WMS&version=1.1.1&request=GetMap"
+               + "&layers=Ifop_Sapo:Precip_GFS_FC_v1&styles=Precip_heatmap"
+               + "&format=image/png&transparent=true&srs=EPSG:4326"
+               + "&bbox=-82,-57,-62,-12&width=1200&height=900"
+               + "&time=" + _up.quote(_fc_t0))
+    folium.raster_layers.ImageOverlay(
+        image=_fc_img,
+        bounds=_fc_bounds,
         name=f'Precipitación Avance ({precip_fc_date})',
-        fmt='image/png',
-        transparent=True,
+        opacity=0.8,
         overlay=True,
         control=True,
-        opacity=0.8,
-        tileSize=512,   # tiles grandes: ~4-6 por frame en vez de ~21 -> avance mucho mas fluido
-        no_wrap=True,
     ).add_to(m)
 
     wind_date = wind_metadata["fecha_dato"] if wind_metadata else "Sin fecha"
@@ -521,7 +528,7 @@ def doma_met():
         var fcLayer = null;
         for (var id in map._layers) {
             var layer = map._layers[id];
-            if (layer instanceof L.TileLayer.WMS && layer.wmsParams.layers.includes("Precip_GFS_FC_v1")) {
+            if (layer instanceof L.ImageOverlay && layer._url && layer._url.indexOf("Precip_GFS_FC_v1") !== -1) {
                 fcLayer = layer;
                 break;
             }
@@ -529,6 +536,23 @@ def doma_met():
         if (!fcLayer) return;
         // Garantizar que la capa FC esté visible en el mapa (por si el overlay no está marcado)
         if (!map.hasLayer(fcLayer)) { map.addLayer(fcLayer); }
+
+        // Construye la URL GetMap con el TIME y los bounds actuales del viewport.
+        function fcUrl(t, bounds) {
+            var w = map.getSize().x, h = map.getSize().y;
+            var bb = bounds ? bounds.toBBoxString() : (-82 + "," + -57 + "," + -62 + "," + -12);
+            return fcLayer._url.split("?")[0]
+                + "?service=WMS&version=1.1.1&request=GetMap"
+                + "&layers=Ifop_Sapo:Precip_GFS_FC_v1&styles=Precip_heatmap"
+                + "&format=image/png&transparent=true&srs=EPSG:4326"
+                + "&bbox=" + bb + "&width=" + w + "&height=" + h
+                + "&time=" + encodeURIComponent(t);
+        }
+        function refreshOverlay(t) {
+            var b = map.getBounds();
+            fcLayer.setBounds(b);          // overlay cubre el viewport actual
+            fcLayer.setUrl(fcUrl(t, b));   // dispara el evento "load" al terminar
+        }
 
         var idx = 0;
         var playing = false;
@@ -544,17 +568,14 @@ def doma_met():
             idx = Math.max(0, Math.min(times.length - 1, i));
             if (waitForPaint === true) {
                 busy = true;
-                // refresca el TIME; cuando terminen de cargar los tiles visibles,
-                // se dispara "load" de la capa y avanzamos
+                // refresca el TIME; cuando termina de cargar la imagen del frame,
+                // se dispara "load" del imageOverlay y avanzamos (sincronizado con el render)
                 fcLayer.off("load").once("load", function() { busy = false; });
-                // IMPORTANTE: setParams SIN segundo argumento (noRedraw) para que
-                // redibuje los tiles con el nuevo TIME. Pasar `true` evitaba el
-                // redibujado -> la capa nunca cambiaba de frame (bug).
-                fcLayer.setParams({TIME: times[idx]});
+                refreshOverlay(times[idx]);
                 // red de seguridad: nunca atascarse mas de 6s en un frame
                 setTimeout(function(){ if (busy) busy = false; }, 6000);
             } else {
-                fcLayer.setParams({TIME: times[idx]});
+                refreshOverlay(times[idx]);
             }
             var lbl = document.getElementById("precipFcLabel");
             if (lbl) lbl.textContent = fmt(times[idx]);
@@ -581,7 +602,7 @@ def doma_met():
         document.getElementById("precipFcPlay").addEventListener("click", function(e) {
             e.stopPropagation();
             if (playing) {
-                clearInterval(timer); playing = false;
+                clearTimeout(timer); playing = false;
                 document.getElementById("precipFcPlay").textContent = "▶ Reproducir";
             } else {
                 playing = true;
@@ -592,11 +613,18 @@ def doma_met():
                     if (busy) { timer = setTimeout(advance, 120); return; }
                     var nxt = (idx >= times.length - 1) ? 0 : idx + 1;
                     setTime(nxt, true);
-                    // pequena pausa para percibir el frame
-                    timer = setTimeout(advance, 650);
+                    // pausa para percibir el frame (tiles 512 -> frame se completa rapido)
+                    timer = setTimeout(advance, 700);
                 }
                 advance();
             }
+        });
+
+        // Al cambiar zoom/pan, re-solicitar el frame actual a la nueva resolucion/viewport
+        var _mv_timer = null;
+        map.on("moveend zoomend", function() {
+            if (_mv_timer) clearTimeout(_mv_timer);
+            _mv_timer = setTimeout(function() { refreshOverlay(times[idx]); }, 250);
         });
 
         // Mostrar primer tiempo por defecto (el play avanza desde el inicio)
