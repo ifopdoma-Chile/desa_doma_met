@@ -47,3 +47,4 @@ def proxy_wms_featureinfo():
         return jsonify({'error': str(e)}), 502
 
 from app import routes_doma_met
+from app import routes_est_met

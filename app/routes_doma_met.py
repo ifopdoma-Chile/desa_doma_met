@@ -444,6 +444,61 @@ def doma_met():
             control=True,
         ).add_to(m)
 
+    # ============================================================
+    #   Capa: Estaciones Meteorológicas (IFOP y Armada)
+    #   Fuente: PostgreSQL gisdb -> estaciones_link2 (tipo 2=IFOP, 6=Armada)
+    # ============================================================
+    estaciones_data = fetch_estaciones_met()
+
+    fg_ifop = folium.FeatureGroup(name='Estaciones Meteorológicas: IFOP', show=False)
+    fg_armada = folium.FeatureGroup(name='Estaciones Meteorológicas: Armada', show=False)
+
+    est_colores = {
+        'IFOP': {'fill': '#3498db', 'label': 'IFOP'},
+        'Armada': {'fill': '#2c3e50', 'label': 'Armada'},
+    }
+
+    estaciones_js_map = []
+    for nivel, estilo in est_colores.items():
+        fg = fg_ifop if nivel == 'IFOP' else fg_armada
+        for est in estaciones_data.get(nivel, []):
+            try:
+                lat_est = float(est['lat'])
+                lon_est = float(est['lon'])
+            except (TypeError, ValueError):
+                continue
+            codigo = est['codigo']
+            popup_html = f"""
+                <div style="font-family: 'Segoe UI', sans-serif; min-width:200px;">
+                    <div style="font-weight:700;color:#0a2a4a;font-size:14px;margin-bottom:4px;">{est['nombre']}</div>
+                    <div style="font-size:12px;color:#555;margin-bottom:2px;">{est['region']}</div>
+                    <div style="font-size:12px;color:#0d4f8c;margin-bottom:8px;">Origen: {nivel} · Código: {codigo}</div>
+                    <button type="button"
+                            onclick="window.abrirGraficosEstacion({codigo})"
+                            style="width:100%;background:#0d4f8c;color:#fff;border:none;border-radius:6px;
+                                   padding:7px 0;cursor:pointer;font-weight:600;font-size:12.5px;">
+                        📈 Ver gráficos meteorológicos
+                    </button>
+                </div>
+            """
+            marker = folium.CircleMarker(
+                location=[lat_est, lon_est],
+                radius=5,
+                color='black',
+                weight=0.5,
+                fill=True,
+                fill_color=estilo['fill'],
+                fill_opacity=0.9,
+                tooltip=est['nombre'],
+                popup=folium.Popup(popup_html, max_width=300),
+            )
+            fg.add_child(marker)
+            estaciones_js_map.append({'codigo': codigo, 'nombre': est['nombre'], 'nivel': nivel})
+
+    if estaciones_data:
+        m.add_child(fg_ifop)
+        m.add_child(fg_armada)
+
     wind_date = wind_metadata["fecha_dato"] if wind_metadata else "Sin fecha"
     wind_date = wind_date.split(" ")[0] if wind_date != "Sin fecha" else "Sin fecha"
     wave_date = "Sin fecha"
