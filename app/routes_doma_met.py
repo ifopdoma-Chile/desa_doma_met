@@ -39,6 +39,24 @@ def get_wms_date(layer_name="presatm2"):
         logger.error(f"Error obteniendo fecha WMS {layer_name}: {e}")
     return "Desconocida"
 
+def get_wms_time(layer_name="presatm2"):
+    """Devuelve el time exacto (ISO) del default WMS para fijar la capa."""
+    try:
+        url = f'{GEOSERVER_URL}/Ifop_Sapo/wms?service=WMS&request=GetCapabilities'
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        root = ET.fromstring(r.content)
+        ns = {'wms': 'http://www.opengis.net/wms'}
+        for layer in root.findall(".//wms:Layer", ns):
+            name = layer.find("wms:Name", ns)
+            if name is not None and name.text == layer_name:
+                dim = layer.find("wms:Dimension", ns)
+                if dim is not None:
+                    return dim.text.strip()
+    except Exception as e:
+        logger.error(f"Error obteniendo hora WMS {layer_name}: {e}")
+    return None
+
 def get_nubes_date():
     chile_tz = pytz.timezone('America/Santiago')
     url = f"{GEOSERVER_URL}/Ifop_Sapo/wms?service=WMS&request=GetCapabilities"
@@ -114,19 +132,6 @@ def fetch_wind_from_wcs():
         json_path = os.path.join(app_static, 'wind_data_latest.json')
         metadata_path = os.path.join(app_static, 'wind_metadata.json')
 
-        # Option A: Cache - no regenerar si el JSON tiene menos de 1 hora
-        if os.path.exists(json_path):
-            mtime = os.path.getmtime(json_path)
-            age = time.time() - mtime
-            if age < 3600:
-                logger.info(f"Viento desde cache ({(age/60):.0f} min de antiguedad)")
-                with open(json_path) as f:
-                    data = json.load(f)
-                if data and len(data) >= 2 and 'header' in data[0]:
-                    with open(metadata_path) as f:
-                        metadata = json.load(f)
-                    return metadata, True
-
         auth = HTTPBasicAuth(GEOSERVER_USER, GEOSERVER_PASS)
         wcs_url = f"{GEOSERVER_URL}/Ifop_Sapo/wcs"
 
@@ -151,8 +156,25 @@ def fetch_wind_from_wcs():
         except Exception:
             pass
 
+        # Cache corto y solo si coincide con la hora publicada.
+        if os.path.exists(json_path) and os.path.exists(metadata_path):
+            mtime = os.path.getmtime(json_path)
+            age = time.time() - mtime
+            if age < 300:
+                try:
+                    with open(metadata_path) as f:
+                        cached_meta = json.load(f)
+                    if cached_meta.get("geoserver_time") == latest_time:
+                        with open(json_path) as f:
+                            data = json.load(f)
+                        if data and len(data) >= 2 and 'header' in data[0]:
+                            logger.info(f"Viento desde cache ({age/60:.0f} min, {latest_time})")
+                            return cached_meta, True
+                except Exception:
+                    pass
+
         def make_wcs_params(coverage_id):
-            return [
+            params = [
                 ("service", "WCS"),
                 ("version", "2.0.1"),
                 ("request", "GetCoverage"),
@@ -161,6 +183,9 @@ def fetch_wind_from_wcs():
                 ("subset", "Long(-180,180)"),
                 ("subset", "Lat(-90,90)"),
             ]
+            if latest_time:
+                params.append(("subset", f'time("{latest_time}")'))
+            return params
 
         resp_u = requests.get(
             wcs_url, params=make_wcs_params("Ifop_Sapo__u10"),
@@ -316,6 +341,8 @@ def doma_met():
     zoom = session.get('zoom', 4)
 
     pressure_date = get_wms_date("presatm2")
+    pressure_time = get_wms_time("presatm2")
+    pressure_time_args = {"time": pressure_time} if pressure_time else {}
     nubes_date = get_nubes_date()
     precip_date = get_wms_date("Precip_GFS_v1")
     precip_fc_times = get_precip_fc_times()
@@ -379,6 +406,7 @@ def doma_met():
         control=True,
         tileSize=256,
         no_wrap=True,
+        **pressure_time_args,
     ).add_to(m)
 
     folium.WmsTileLayer(
@@ -393,6 +421,7 @@ def doma_met():
         opacity=1.0,
         tileSize=256,
         no_wrap=True,
+        **pressure_time_args,
     ).add_to(m)
 
     folium.WmsTileLayer(
@@ -448,6 +477,7 @@ def doma_met():
     #   Capa: Estaciones Meteorológicas (IFOP y Armada)
     #   Fuente: PostgreSQL gisdb -> estaciones_link2 (tipo 2=IFOP, 6=Armada)
     # ============================================================
+    from app.routes_est_met import fetch_estaciones_met
     estaciones_data = fetch_estaciones_met()
 
     fg_ifop = folium.FeatureGroup(name='Estaciones Meteorológicas: IFOP', show=False)
