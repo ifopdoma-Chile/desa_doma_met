@@ -198,7 +198,7 @@
                 count++;
             });
             if (count > 0) {
-                html += '<div class="sapo-layer-footer">' + count + ' capa' + (count > 1 ? 's' : '') + '</div>';
+                html += '<div class="sapo-layer-footer">' + count + ' capa' + (count > 1 ? 's' : '') + ' · <a href="https://redmeteo.cl/" target="_blank" rel="noopener noreferrer" style="color:#1565c0;text-decoration:none;font-weight:600;">RedMeteo</a></div>';
             }
             body.innerHTML = html;
             body.classList.add('sapo-has-styled-layers');
